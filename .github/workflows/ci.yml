@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12.2
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Verify
+        run: make check
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag context-propagation-lab:test .
+      - name: Exercise image
+        run: sh tests/container_test.sh context-propagation-lab:test

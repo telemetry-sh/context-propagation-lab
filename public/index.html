@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="An interactive Dart lab showing how trace context disappears across callbacks, isolates, queues, and fanout."
+    />
+    <title>Context Propagation Lab · telemetry.sh</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="https://telemetry.sh" aria-label="telemetry.sh home">
+        <span class="mark" aria-hidden="true"></span>
+        telemetry.sh
+      </a>
+      <span class="lab-id">LAB / 058</span>
+      <a class="header-link" href="#instrumentation">instrument this →</a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">DISTRIBUTED TRACING / DART ISOLATES</p>
+          <h1>The request succeeded.<br /><em>Its trace ended three services ago.</em></h1>
+          <p class="dek">
+            A context-propagation lab for the failures that uptime cannot see. Follow one checkout
+            through Futures, isolates, message queues, retries, and fanout—then watch a healthy
+            request turn into unrelated trace fragments.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#workbench">break a trace</a>
+            <a class="button ghost" href="#evidence">inspect the evidence</a>
+          </div>
+        </div>
+
+        <div class="trace-ticket" role="img" aria-label="Example fragmented trace">
+          <div class="ticket-top">
+            <span>checkout / 731</span>
+            <span class="status-ok">200 OK</span>
+          </div>
+          <div class="ticket-body">
+            <div class="trace-line joined">
+              <span class="node"></span>
+              <span class="service">gateway</span>
+              <span class="trace-code">trace…731</span>
+            </div>
+            <div class="trace-line joined">
+              <span class="node"></span>
+              <span class="service">auth.future</span>
+              <span class="trace-code">trace…731</span>
+            </div>
+            <div class="boundary-label">ISOLATE BOUNDARY</div>
+            <div class="trace-line missing">
+              <span class="node"></span>
+              <span class="service">risk.isolate</span>
+              <span class="trace-code">new root</span>
+            </div>
+            <div class="trace-line missing">
+              <span class="node"></span>
+              <span class="service">inventory.queue</span>
+              <span class="trace-code">new root</span>
+            </div>
+            <div class="trace-line wrong">
+              <span class="node"></span>
+              <span class="service">catalog.shard</span>
+              <span class="trace-code">trace…084</span>
+            </div>
+          </div>
+          <div class="ticket-stamp">OUTCOME ≠ OBSERVABILITY</div>
+        </div>
+      </section>
+
+      <section class="premise section-rule">
+        <p class="section-number">01</p>
+        <div>
+          <p class="eyebrow">THE PREMISE</p>
+          <h2>Context is data. Every boundary is a serialization decision.</h2>
+        </div>
+        <div class="premise-copy">
+          <p>
+            A trace ID stored in a convenient ambient variable can look correct in a single request.
+            Under concurrency it may belong to another request. A Dart Zone preserves values across
+            local asynchronous callbacks, but a new isolate has separate memory and receives only
+            what the message carries.
+          </p>
+          <p class="callout">
+            If you graph only HTTP success, every strategy below looks identical.
+          </p>
+        </div>
+      </section>
+
+      <section class="workbench section-rule" id="workbench">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">INTERACTIVE MODEL</p>
+            <h2>Stress the context chain.</h2>
+          </div>
+          <p class="model-note">
+            Deterministic model · same request outcomes · different trace graphs
+          </p>
+        </div>
+
+        <div class="workbench-grid">
+          <form class="controls" id="controls">
+            <div class="controls-heading">
+              <span>WORKLOAD</span>
+              <button type="button" id="reset">reset</button>
+            </div>
+
+            <label>
+              <span>requests <strong id="requests-value"></strong></span>
+              <input id="requests" name="requests" type="range" min="100" max="10000" step="100" value="1200" />
+            </label>
+            <label>
+              <span>async callbacks <strong id="async_hops-value"></strong></span>
+              <input id="async_hops" name="async_hops" type="range" min="0" max="12" value="5" />
+            </label>
+            <label>
+              <span>isolate crossings <strong id="isolate_hops-value"></strong></span>
+              <input id="isolate_hops" name="isolate_hops" type="range" min="0" max="8" value="2" />
+            </label>
+            <label>
+              <span>queue hops <strong id="message_hops-value"></strong></span>
+              <input id="message_hops" name="message_hops" type="range" min="0" max="12" value="3" />
+            </label>
+            <label>
+              <span>fanout width <strong id="fanout-value"></strong></span>
+              <input id="fanout" name="fanout" type="range" min="0" max="12" value="3" />
+            </label>
+            <label>
+              <span>background work <strong id="background_task_percent-value"></strong></span>
+              <input id="background_task_percent" name="background_task_percent" type="range" min="0" max="100" value="20" />
+            </label>
+            <label>
+              <span>retries <strong id="retry_percent-value"></strong></span>
+              <input id="retry_percent" name="retry_percent" type="range" min="0" max="80" value="12" />
+            </label>
+            <label>
+              <span>request failures <strong id="failure_percent-value"></strong></span>
+              <input id="failure_percent" name="failure_percent" type="range" min="0" max="80" value="8" />
+            </label>
+            <label>
+              <span>baggage fields <strong id="baggage_fields-value"></strong></span>
+              <input id="baggage_fields" name="baggage_fields" type="range" min="0" max="32" value="6" />
+            </label>
+          </form>
+
+          <div class="results" aria-live="polite">
+            <div class="outcome-strip">
+              <div>
+                <span class="metric-label">REQUEST SUCCESS</span>
+                <strong id="request-success">—</strong>
+              </div>
+              <p>identical across all four strategies</p>
+              <span class="equal-sign">=</span>
+            </div>
+
+            <div class="strategy-tabs" id="strategy-tabs" role="tablist" aria-label="Context strategies"></div>
+
+            <div class="selected-strategy">
+              <div class="strategy-intro">
+                <div>
+                  <p class="eyebrow" id="strategy-kicker">—</p>
+                  <h3 id="strategy-name">Loading model…</h3>
+                </div>
+                <span class="recommended" id="recommended" hidden>recommended</span>
+              </div>
+              <p id="strategy-description"></p>
+
+              <div class="metric-grid">
+                <div>
+                  <span>trace completeness</span>
+                  <strong id="trace-completeness">—</strong>
+                  <small>correctly joined spans</small>
+                </div>
+                <div>
+                  <span>complete traces</span>
+                  <strong id="complete-traces">—</strong>
+                  <small>end-to-end graphs</small>
+                </div>
+                <div>
+                  <span>fragment roots</span>
+                  <strong id="fragment-multiplier">—</strong>
+                  <small>roots per request</small>
+                </div>
+                <div>
+                  <span>diagnosable failures</span>
+                  <strong id="diagnosable-failures">—</strong>
+                  <small>errors with usable ancestry</small>
+                </div>
+              </div>
+
+              <div class="coverage-heading">
+                <span>SPAN LINEAGE BY BOUNDARY</span>
+                <div class="legend">
+                  <span><i class="joined-key"></i> joined</span>
+                  <span><i class="orphan-key"></i> orphan</span>
+                  <span><i class="wrong-key"></i> wrong parent</span>
+                </div>
+              </div>
+              <div class="stage-chart" id="stage-chart"></div>
+
+              <div class="cost-row">
+                <span>CONTEXT COST</span>
+                <span><b id="carrier-writes">—</b> carrier writes</span>
+                <span><b id="carrier-bytes">—</b> encoded</span>
+                <span><b id="context-operations">—</b> context operations</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="comparison section-rule" id="evidence">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">THE COMPARISON</p>
+            <h2>Four implementations. One application.</h2>
+          </div>
+          <p class="model-note">Change the workload above; every number responds.</p>
+        </div>
+        <div class="comparison-grid" id="comparison-grid"></div>
+      </section>
+
+      <section class="ledger section-rule">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">TRACE LEDGER</p>
+            <h2>The break is visible in the fields.</h2>
+          </div>
+          <p class="model-note" id="ledger-policy">—</p>
+        </div>
+        <div class="ledger-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>service</th>
+                <th>boundary</th>
+                <th>trace.id</th>
+                <th>span.parent_id</th>
+                <th>context source</th>
+                <th>state</th>
+              </tr>
+            </thead>
+            <tbody id="event-ledger"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="instrumentation section-rule" id="instrumentation">
+        <div>
+          <p class="eyebrow">INSTRUMENTATION RECIPE</p>
+          <h2>Measure the chain,<br />not just the endpoint.</h2>
+          <p>
+            Emit enough structure to prove that work joined the intended request. A good trace
+            backend can expose missing roots, implausible parentage, and boundary-specific loss
+            before an incident turns the graph into a guessing game.
+          </p>
+          <a class="button primary" href="https://telemetry.sh">explore telemetry.sh →</a>
+        </div>
+        <div class="signal-list">
+          <div>
+            <span>01 / IDENTITY</span>
+            <code>trace.id</code>
+            <code>span.id</code>
+            <code>span.parent_id</code>
+          </div>
+          <div>
+            <span>02 / BOUNDARY</span>
+            <code>trace.context.source</code>
+            <code>runtime.isolate.id</code>
+            <code>messaging.envelope.traceparent</code>
+          </div>
+          <div>
+            <span>03 / INTEGRITY</span>
+            <code>trace.fragment.root_count</code>
+            <code>trace.completeness</code>
+            <code>trace.wrong_parent_count</code>
+          </div>
+          <div>
+            <span>04 / COST</span>
+            <code>baggage.size_bytes</code>
+            <code>trace.carrier.write_count</code>
+            <code>trace.context.operation_count</code>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>CONTEXT PROPAGATION LAB</span>
+      <span>BUILT WITH DART · POWERED BY <a href="https://telemetry.sh">TELEMETRY.SH</a></span>
+    </footer>
+  </body>
+</html>
