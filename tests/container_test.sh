@@ -24,6 +24,17 @@ curl -fsS "http://127.0.0.1:$port/api/simulate" |
   jq -e '.strategies[3].policy == "zone_plus_envelope"' >/dev/null
 
 test "$(docker inspect -f '{{.Config.User}}' "$container_id")" = "lab"
-test "$(docker inspect -f '{{.State.Health.Status}}' "$container_id")" = "healthy"
+
+attempt=0
+health=
+while [ "$attempt" -lt 60 ]; do
+  health=$(docker inspect -f '{{.State.Health.Status}}' "$container_id")
+  if [ "$health" = "healthy" ]; then
+    break
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.25
+done
+test "$health" = "healthy"
 
 printf '%s\n' "ContainerTest: image, non-root runtime, healthcheck, and API passed"
